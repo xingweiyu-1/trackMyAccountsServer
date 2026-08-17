@@ -73,16 +73,26 @@ public interface RecordMapper extends BaseMapper<Record> {
     List<CategoryBreakdownVO> selectExpensePieByDateRange(@Param("startDate") LocalDate startDate,
                                                           @Param("endDate") LocalDate endDate);
 
-    /** 近 N 个月趋势（startDate 由 Service 计算） */
+    /**
+     * 近 N 个月趋势（startDate 由 Service 计算）。
+     * 先按年月聚合再拼 label，避免 H2 对 SELECT 中 CONCAT(record_date…) 要求进 GROUP BY。
+     */
     @Select("""
         SELECT
-            CONCAT(CAST(EXTRACT(MONTH FROM record_date) AS CHAR), '月') AS label,
-            COALESCE(SUM(CASE WHEN type='income' THEN amount ELSE 0 END), 0) AS income,
-            COALESCE(SUM(CASE WHEN type='expense' THEN amount ELSE 0 END), 0) AS expense
-        FROM t_record
-        WHERE record_date >= #{startDate}
-        GROUP BY EXTRACT(YEAR FROM record_date), EXTRACT(MONTH FROM record_date)
-        ORDER BY EXTRACT(YEAR FROM record_date), EXTRACT(MONTH FROM record_date)
+            CONCAT(CAST(ym AS CHAR), '月') AS label,
+            COALESCE(SUM(income), 0) AS income,
+            COALESCE(SUM(expense), 0) AS expense
+        FROM (
+            SELECT
+                EXTRACT(YEAR FROM record_date) AS yr,
+                EXTRACT(MONTH FROM record_date) AS ym,
+                CASE WHEN type='income' THEN amount ELSE 0 END AS income,
+                CASE WHEN type='expense' THEN amount ELSE 0 END AS expense
+            FROM t_record
+            WHERE record_date >= #{startDate}
+        ) t
+        GROUP BY yr, ym
+        ORDER BY yr, ym
         """)
     List<TrendVO> selectMonthlyTrend(@Param("startDate") LocalDate startDate);
 
